@@ -164,6 +164,11 @@ def write_task_detail(task: dict):
 
 
 def main():
+    if not API_HOST:
+        raise ValueError('API host required')
+    if not API_TOKEN:
+        raise ValueError('API token required')
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     for f in OUTPUT_DIR.glob('*.md'):
         f.unlink()
