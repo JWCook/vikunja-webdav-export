@@ -1,0 +1,20 @@
+[project]
+name = 'vikunja-dump'
+version = '0.1.0'
+description = 'Dump text from Vikunja tasks to Markdown files'
+readme = 'README.md'
+requires-python = '>=3.10'
+dependencies = [
+    'requests',
+    'html2text',
+]
+
+[tool.ruff]
+fix = true
+unsafe-fixes = true
+line-length = 100
+output-format = 'grouped'
+target-version = 'py310'
+
+[tool.ruff.format]
+quote-style = 'single'
