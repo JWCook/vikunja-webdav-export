@@ -6,11 +6,11 @@
 #     "html2text",
 # ]
 # ///
+import json
 import re
+from logging import basicConfig, getLogger
 from os import getenv
-from logging import getLogger, basicConfig
 from pathlib import Path
-from shutil import rmtree
 from textwrap import dedent
 
 from html2text import HTML2Text
@@ -20,9 +20,25 @@ API_HOST = getenv('VIKUNJA_HOST', 'try.vikunja.io')
 API_BASE_URL = f'https://{API_HOST}/api/v1'
 TASK_BASE_URL = f'https://{API_HOST}/tasks'
 HEADERS = {'Authorization': f'Bearer {getenv("VIKUNJA_TOKEN")}'}
-IGNORE_PROJECTS = []
+KEEP_FIELDS = [
+    'id',
+    'title',
+    'description',
+    'done',
+    'done_at',
+    'created',
+    'updated',
+    'is_favorite',
+    'labels',
+    'comments',
+    'project',
+]
 OUTPUT_DIR = Path('output')
 SESSION = Session()
+
+# Misc options; TODO: expose as config values or CLI args?
+IGNORE_PROJECTS = []
+COMBINED_JSON = False
 
 logger = getLogger(__name__)
 basicConfig(level='INFO')
@@ -53,6 +69,11 @@ def get_tasks():
         task['created'] = format_ts(task['created'])
         task['updated'] = format_ts(task['updated'])
         task['done_at'] = format_ts(task['done_at']) if task['done'] else 'N/A'
+
+        # Drop unused fields
+        drop_fields = set(task.keys()) - set(KEEP_FIELDS)
+        for k in drop_fields:
+            task.pop(k)
 
     # Filter out ignored projects
     total_tasks = len(tasks)
@@ -100,7 +121,7 @@ def format_ts(ts: str):
 
 
 def write_task_detail(task: dict):
-    normalized_title = re.sub(r'[^\w\s]', '', task['title']).replace(' ', '_')
+    normalized_title = re.sub(r'[^\w\s]', '', task['title']).strip().replace(' ', '_')
     path = OUTPUT_DIR / f'{task["id"]}_{normalized_title}.md'
 
     detail = [
@@ -130,19 +151,22 @@ def write_task_detail(task: dict):
 
 
 def main():
-    rmtree(OUTPUT_DIR, ignore_errors=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    for f in OUTPUT_DIR.glob('*.md'):
+        f.unlink()
     tasks = get_tasks()
-    logger.info(f'Found {len(tasks)} tasks')
 
-    # with (OUTPUT_DIR / 'all_tasks.json').open('w') as f:
-    #     f.write(json.dumps(tasks, indent=2))
-    write_task_summary(tasks)
+    if COMBINED_JSON:
+        with (OUTPUT_DIR / 'tasks.json').open('w') as f:
+            f.write(json.dumps(tasks, indent=2))
+    else:
+        write_task_summary(tasks)
+        detail_tasks = [task for task in tasks if task['description'] or task['comments']]
+        logger.info(f'Found {len(detail_tasks)} tasks with details')
+        for task in detail_tasks:
+            write_task_detail(task)
 
-    detail_tasks = [task for task in tasks if task['description'] or task['comments']]
-    for task in detail_tasks:
-        write_task_detail(task)
-    logger.info(f'Found {len(detail_tasks)} tasks with details')
+    logger.info('Export complete')
 
 
 if __name__ == '__main__':
