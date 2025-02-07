@@ -2,6 +2,7 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
+#     "python-dotenv",
 #     "requests",
 #     "html2text",
 # ]
@@ -13,13 +14,21 @@ from os import getenv
 from pathlib import Path
 from textwrap import dedent
 
+from dotenv import load_dotenv
 from html2text import HTML2Text
 from requests import Session
 
-API_HOST = getenv('VIKUNJA_HOST', 'try.vikunja.io')
+# Options, settable from environment variables or .env file
+load_dotenv()
+API_HOST = getenv('VJA_HOST')
+API_TOKEN = getenv('VJA_TOKEN')
+IGNORE_PROJECTS = [s.strip() for s in getenv('VJA_IGNORE_PROJECTS', '').split(',')]
+IGNORE_LABELS = [s.strip() for s in getenv('VJA_IGNORE_LABELS', '').split(',')]
+COMBINED_JSON = getenv('VJA_COMBINED_JSON', 'False').lower() == 'true'
+LOG_LEVEL = getenv('VJA_LOG_LEVEL', 'WARN')
+
 API_BASE_URL = f'https://{API_HOST}/api/v1'
 TASK_BASE_URL = f'https://{API_HOST}/tasks'
-HEADERS = {'Authorization': f'Bearer {getenv("VIKUNJA_TOKEN")}'}
 KEEP_FIELDS = [
     'id',
     'title',
@@ -35,13 +44,11 @@ KEEP_FIELDS = [
 ]
 OUTPUT_DIR = Path('output')
 SESSION = Session()
+SESSION.headers = {'Authorization': f'Bearer {API_TOKEN}'}
 
-# Misc options; TODO: expose as config values or CLI args?
-IGNORE_PROJECTS = []
-COMBINED_JSON = False
-
+basicConfig(level='WARN')
 logger = getLogger(__name__)
-basicConfig(level='INFO')
+logger.setLevel(LOG_LEVEL)
 
 
 def get_tasks():
@@ -54,7 +61,7 @@ def get_tasks():
     # Add comments and project titles
     logger.info('Fetching comments')
     for task in tasks:
-        response = SESSION.get(f'{API_BASE_URL}/tasks/{task["id"]}/comments', headers=HEADERS)
+        response = SESSION.get(f'{API_BASE_URL}/tasks/{task["id"]}/comments')
         task['comments'] = response.json()
         for comment in task['comments']:
             comment['comment'] = convert_text(comment['comment'])
@@ -75,12 +82,18 @@ def get_tasks():
         for k in drop_fields:
             task.pop(k)
 
-    # Filter out ignored projects
+    # Filter out ignored projects and labels
+    logger.debug(f'Ignoring projects {IGNORE_PROJECTS} and labels {IGNORE_LABELS}')
     total_tasks = len(tasks)
-    tasks = [task for task in tasks if task['project'] not in IGNORE_PROJECTS]
+    tasks = [
+        t
+        for t in tasks
+        if t['project'] not in IGNORE_PROJECTS
+        and all(lbl not in IGNORE_LABELS for lbl in t['labels'])
+    ]
     msg = f'Found {len(tasks)} tasks'
     if n_ignored := total_tasks - len(tasks):
-        msg += f'{n_ignored} tasks ignored'
+        msg += f' ({n_ignored} tasks ignored)'
     logger.info(msg)
     return tasks
 
@@ -93,12 +106,12 @@ def convert_text(text: str):
 
 def paginate(url: str):
     """Get all pages from a paginated API endpoint"""
-    response = SESSION.get(url, headers=HEADERS)
+    response = SESSION.get(url)
     response.raise_for_status()
     total_pages = int(response.headers['x-pagination-total-pages'])
     records = response.json()
     for page in range(2, total_pages + 1):
-        response = SESSION.get(url, headers=HEADERS, params={'page': page})
+        response = SESSION.get(url, params={'page': page})
         response.raise_for_status()
         records += response.json()
     return records

@@ -12,7 +12,7 @@ Install [`uv`](https://docs.astral.sh/uv):
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Set Vikunja host and token:
+Set Vikunja host and token as environment variables (or in a `.env` file):
 ```sh
 export VIKUNJA_HOST=vikunja.example.com
 export VIKUNJA_TOKEN=your-api-token
