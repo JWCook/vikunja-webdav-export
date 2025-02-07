@@ -29,11 +29,14 @@ basicConfig(level='INFO')
 
 
 def get_tasks():
+    logger.info('Fetching tasks')
+    tasks = paginate(f'{API_BASE_URL}/tasks/all')
+    logger.info('Fetching projects')
     projects = paginate(f'{API_BASE_URL}/projects')
     projects = {p['id']: p['title'] for p in projects}
-    tasks = paginate(f'{API_BASE_URL}/tasks/all')
 
     # Add comments and project titles
+    logger.info('Fetching comments')
     for task in tasks:
         response = SESSION.get(f'{API_BASE_URL}/tasks/{task["id"]}/comments', headers=HEADERS)
         task['comments'] = response.json()
@@ -52,7 +55,12 @@ def get_tasks():
         task['done_at'] = format_ts(task['done_at']) if task['done'] else 'N/A'
 
     # Filter out ignored projects
+    total_tasks = len(tasks)
     tasks = [task for task in tasks if task['project'] not in IGNORE_PROJECTS]
+    msg = f'Found {len(tasks)} tasks'
+    if n_ignored := total_tasks - len(tasks):
+        msg += f'{n_ignored} tasks ignored'
+    logger.info(msg)
     return tasks
 
 
