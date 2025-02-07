@@ -6,3 +6,4 @@ wheels/
 output/
 *.egg-info
 .venv
+.vim

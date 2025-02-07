@@ -16,9 +16,10 @@ from textwrap import dedent
 from html2text import HTML2Text
 from requests import Session
 
-API_HOST = getenv('VIKUNJA_API_HOST', 'https://try.vikunja.io')
+API_HOST = getenv('VIKUNJA_HOST', 'try.vikunja.io')
 API_BASE_URL = f'https://{API_HOST}/api/v1'
-HEADERS = {'Authorization': f'Bearer {getenv("VIKUNJA_API_TOKEN")}'}
+TASK_BASE_URL = f'https://{API_HOST}/tasks'
+HEADERS = {'Authorization': f'Bearer {getenv("VIKUNJA_TOKEN")}'}
 IGNORE_PROJECTS = []
 OUTPUT_DIR = Path('output')
 SESSION = Session()
@@ -38,6 +39,7 @@ def get_tasks():
         task['comments'] = response.json()
         for comment in task['comments']:
             comment['comment'] = convert_text(comment['comment'])
+            comment['created'] = format_ts(comment['created'])
         if project_id := task.pop('project_id', None):
             task['project'] = projects[project_id]
 
@@ -91,22 +93,30 @@ def format_ts(ts: str):
 def write_task_detail(task: dict):
     normalized_title = re.sub(r'[^\w\s]', '', task['title']).replace(' ', '_')
     path = OUTPUT_DIR / f'{task["id"]}_{normalized_title}.md'
+
+    detail = [
+        f'# {task["title"]}',
+        f'* URL: {TASK_BASE_URL}/{task["id"]}',
+        f'* Created: {task["created"]}',
+        f'* Updated: {task["updated"]}',
+        f'* Project: {task["project"]}',
+        f'* Labels: {", ".join(task["labels"])}',
+    ]
+    if task['description']:
+        detail += [
+            '\n# Description',
+            task['description'],
+        ]
+    if task['comments']:
+        detail.append('\n# Comments')
+        for comment in task['comments']:
+            detail += [
+                f'\n## {comment["author"]["name"]} {comment["created"]}',
+                comment['comment'],
+            ]
+
     with path.open('w') as f:
-        f.write(f'# {task["title"]}\n')
-        f.write(f'Created: {task["created"]}\n')
-        f.write(f'Updated: {task["updated"]}\n')
-        f.write(f'Project: {task["project"]}\n')
-        f.write(f'Labels: {", ".join(task["labels"])}\n')
-        if task['description']:
-            f.write('\n# Description\n')
-            f.write(task['description'])
-            f.write('\n')
-        if task['comments']:
-            f.write('\n# Comments\n')
-            for comment in task['comments']:
-                f.write(f'## {comment["author"]["name"]} ({comment["created"]})\n')
-                f.write(comment['comment'])
-                f.write('\n')
+        f.write('\n'.join(detail))
 
 
 def main():
