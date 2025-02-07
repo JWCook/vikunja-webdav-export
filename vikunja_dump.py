@@ -49,6 +49,7 @@ def get_tasks():
         task['description'] = convert_text(task['description'])
         task['created'] = format_ts(task['created'])
         task['updated'] = format_ts(task['updated'])
+        task['done_at'] = format_ts(task['done_at']) if task['done'] else 'N/A'
 
     # Filter out ignored projects
     tasks = [task for task in tasks if task['project'] not in IGNORE_PROJECTS]
@@ -99,6 +100,7 @@ def write_task_detail(task: dict):
         f'* URL: {TASK_BASE_URL}/{task["id"]}',
         f'* Created: {task["created"]}',
         f'* Updated: {task["updated"]}',
+        f'* Completed: {task["done_at"]}',
         f'* Project: {task["project"]}',
         f'* Labels: {", ".join(task["labels"])}',
     ]
