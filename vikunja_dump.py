@@ -26,6 +26,7 @@ IGNORE_PROJECTS = [s.strip() for s in getenv('VJA_IGNORE_PROJECTS', '').split(',
 IGNORE_LABELS = [s.strip() for s in getenv('VJA_IGNORE_LABELS', '').split(',')]
 COMBINED_JSON = getenv('VJA_COMBINED_JSON', 'False').lower() == 'true'
 LOG_LEVEL = getenv('VJA_LOG_LEVEL', 'WARN')
+OUTPUT_DIR = Path(getenv('VJA_OUTPUT_DIR', 'output')).expanduser().absolute()
 
 API_BASE_URL = f'https://{API_HOST}/api/v1'
 TASK_BASE_URL = f'https://{API_HOST}/tasks'
@@ -42,7 +43,6 @@ KEEP_FIELDS = [
     'comments',
     'project',
 ]
-OUTPUT_DIR = Path('output')
 SESSION = Session()
 SESSION.headers = {'Authorization': f'Bearer {API_TOKEN}'}
 
@@ -184,7 +184,7 @@ def main():
         for task in detail_tasks:
             write_task_detail(task)
 
-    logger.info('Export complete')
+    logger.info(f'Export complete: {OUTPUT_DIR}')
 
 
 if __name__ == '__main__':
