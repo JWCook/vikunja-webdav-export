@@ -2,7 +2,9 @@
 name = 'vikunja-dump'
 version = '0.0.1'
 description = 'Dump text from Vikunja tasks to Markdown files'
-readme = 'README.md'
+authors = [{ name = 'Jordan Cook' }]
+license = 'MIT'
+rreadme = 'README.md'
 requires-python = '>=3.10'
 dependencies = [
     'python-dotenv',
