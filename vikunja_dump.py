@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 from html2text import HTML2Text
 from requests import Session
 
-# Options, settable from environment variables or .env file
+# Settings from environment variables and/or .env file
 load_dotenv()
 API_HOST = getenv('VJA_HOST')
 API_TOKEN = getenv('VJA_TOKEN')
@@ -33,6 +33,7 @@ TASK_BASE_URL = f'https://{API_HOST}/tasks'
 KEEP_FIELDS = [
     'id',
     'title',
+    'filename',
     'description',
     'done',
     'done_at',
@@ -46,20 +47,48 @@ KEEP_FIELDS = [
 SESSION = Session()
 SESSION.headers = {'Authorization': f'Bearer {API_TOKEN}'}
 
-basicConfig(level='WARN')
-logger = getLogger(__name__)
+basicConfig(
+    format='%(asctime)s [%(name)s] [%(levelname)-5s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    level='WARN',
+)
+logger = getLogger('vikunja-dump')
 logger.setLevel(LOG_LEVEL)
 
 
+def main():
+    if not API_HOST:
+        raise ValueError('API host required')
+    if not API_TOKEN:
+        raise ValueError('API token required')
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    tasks = get_tasks()
+
+    if COMBINED_JSON:
+        with (OUTPUT_DIR / 'tasks.json').open('w') as f:
+            f.write(json.dumps(tasks, indent=2))
+    else:
+        write_task_summary(tasks)
+        detail_tasks = [task for task in tasks if task['description'] or task['comments']]
+        logger.info(f'Found {len(detail_tasks)} tasks with details')
+        update_paths(detail_tasks)
+        for task in detail_tasks:
+            write_task_detail(task)
+
+    logger.info(f'Export complete: {OUTPUT_DIR}')
+
+
 def get_tasks():
+    """Get all tasks add comments and projects, and format for export"""
     logger.info('Fetching tasks')
     tasks = paginate(f'{API_BASE_URL}/tasks/all')
-    logger.info('Fetching projects')
+    logger.debug('Fetching projects')
     projects = paginate(f'{API_BASE_URL}/projects')
     projects = {p['id']: p['title'] for p in projects}
 
     # Add comments and project titles
-    logger.info('Fetching comments')
+    logger.debug('Fetching comments')
     for task in tasks:
         response = SESSION.get(f'{API_BASE_URL}/tasks/{task["id"]}/comments')
         task['comments'] = response.json()
@@ -76,6 +105,8 @@ def get_tasks():
         task['created'] = format_ts(task['created'])
         task['updated'] = format_ts(task['updated'])
         task['done_at'] = format_ts(task['done_at']) if task['done'] else 'N/A'
+        normalized_title = re.sub(r'[^\w\s]', '', task['title']).strip().replace(' ', '_')
+        task['filename'] = f'{task["id"]}_{normalized_title}.md'
 
         # Drop unused fields
         drop_fields = set(task.keys()) - set(KEEP_FIELDS)
@@ -98,12 +129,6 @@ def get_tasks():
     return tasks
 
 
-def convert_text(text: str):
-    """Convert HTML content to Markdown"""
-    md_text = HTML2Text().handle(text)
-    return dedent(md_text).strip()
-
-
 def paginate(url: str):
     """Get all pages from a paginated API endpoint"""
     response = SESSION.get(url)
@@ -115,6 +140,16 @@ def paginate(url: str):
         response.raise_for_status()
         records += response.json()
     return records
+
+
+def convert_text(text: str):
+    """Convert HTML content to Markdown"""
+    md_text = HTML2Text().handle(text)
+    return dedent(md_text).strip()
+
+
+def format_ts(ts: str):
+    return ts.split('T')[0]
 
 
 def write_task_summary(tasks: dict):
@@ -129,14 +164,7 @@ def write_task_summary(tasks: dict):
             )
 
 
-def format_ts(ts: str):
-    return ts.split('T')[0]
-
-
 def write_task_detail(task: dict):
-    normalized_title = re.sub(r'[^\w\s]', '', task['title']).strip().replace(' ', '_')
-    path = OUTPUT_DIR / f'{task["id"]}_{normalized_title}.md'
-
     detail = [
         f'# {task["title"]}',
         f'* URL: {TASK_BASE_URL}/{task["id"]}',
@@ -159,32 +187,37 @@ def write_task_detail(task: dict):
                 comment['comment'],
             ]
 
-    with path.open('w') as f:
+    with (OUTPUT_DIR / task['filename']).open('w') as f:
         f.write('\n'.join(detail))
 
 
-def main():
-    if not API_HOST:
-        raise ValueError('API host required')
-    if not API_TOKEN:
-        raise ValueError('API token required')
+# TODO: don't modify files if contents haven't changed?
+def update_paths(tasks: dict):
+    """Merge local and remote file paths so external sync programs pick up the correct file
+    operations. I.e., rename/modify rather than delete/create.
+    """
+    task_paths = [path for path in OUTPUT_DIR.glob('*.md') if path.name[0].isdigit()]
+    local_id_paths = {int(path.name.split('_')[0]): path for path in task_paths}
+    remote_id_paths = {int(task['id']): OUTPUT_DIR / task['filename'] for task in tasks}
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    for f in OUTPUT_DIR.glob('*.md'):
-        f.unlink()
-    tasks = get_tasks()
+    # Remove any local ids that don't exist remotely
+    to_remove = set(local_id_paths.keys()) - set(remote_id_paths.keys())
+    for task_id in to_remove:
+        local_id_paths[task_id].unlink()
 
-    if COMBINED_JSON:
-        with (OUTPUT_DIR / 'tasks.json').open('w') as f:
-            f.write(json.dumps(tasks, indent=2))
-    else:
-        write_task_summary(tasks)
-        detail_tasks = [task for task in tasks if task['description'] or task['comments']]
-        logger.info(f'Found {len(detail_tasks)} tasks with details')
-        for task in detail_tasks:
-            write_task_detail(task)
+    # Rename any local files that have changed remotely
+    to_rename = {
+        k
+        for k in set(remote_id_paths.keys()) & set(local_id_paths.keys())
+        if remote_id_paths[k].name != local_id_paths[k].name
+    }
+    for task_id in to_rename:
+        local_id_paths[task_id].rename(remote_id_paths[task_id])
 
-    logger.info(f'Export complete: {OUTPUT_DIR}')
+    logger.debug(
+        f'Removed: {len(to_remove)} | Renamed: {len(to_rename)} | '
+        f'Created: {len(set(remote_id_paths.keys()) - set(local_id_paths.keys()))}'
+    )
 
 
 if __name__ == '__main__':
