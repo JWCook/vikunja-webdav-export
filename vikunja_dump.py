@@ -227,5 +227,14 @@ def update_paths(tasks: dict):
     )
 
 
+def check_for_updates(tasks: dict) -> dict:
+    """Check remote timestamps (task['updated']) against local file timestamps; remove any tasks
+    that haven't changed.
+    """
+    task_paths = [path for path in OUTPUT_DIR.glob('*.md') if path.name[0].isdigit()]
+    {path.name: path.stat().st_mtime for path in task_paths}
+    {task['filename']: task['updated'] for task in tasks}
+
+
 if __name__ == '__main__':
     main()
