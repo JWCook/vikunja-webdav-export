@@ -9,6 +9,7 @@
 # ///
 import json
 import re
+from datetime import datetime
 from logging import basicConfig, getLogger
 from os import getenv
 from pathlib import Path
@@ -44,6 +45,8 @@ KEEP_FIELDS = [
     'comments',
     'project',
 ]
+SRC_DT_FORMAT = '%Y-%m-%dT%H:%M:%S'
+OUTPUT_DT_FORMAT = '%Y-%m-%d'
 SESSION = Session()
 SESSION.headers = {'Authorization': f'Bearer {API_TOKEN}'}
 
@@ -93,18 +96,18 @@ def get_tasks():
         response = SESSION.get(f'{API_BASE_URL}/tasks/{task["id"]}/comments')
         task['comments'] = response.json()
         for comment in task['comments']:
-            comment['comment'] = convert_text(comment['comment'])
-            comment['created'] = format_ts(comment['created'])
+            comment['comment'] = _convert_text(comment['comment'])
+            comment['created'] = _format_dt(comment['created'])
         if project_id := task.pop('project_id', None):
             task['project'] = projects[project_id]
 
         # Format other relevant fields
         labels = task['labels'] or []
         task['labels'] = [label['title'] for label in labels]
-        task['description'] = convert_text(task['description'])
-        task['created'] = format_ts(task['created'])
-        task['updated'] = format_ts(task['updated'])
-        task['done_at'] = format_ts(task['done_at']) if task['done'] else 'N/A'
+        task['description'] = _convert_text(task['description'])
+        task['created'] = _parse_dt(task['created'])
+        task['updated'] = _parse_dt(task['updated'])
+        task['done_at'] = _parse_dt(task['done_at']) if task['done'] else 'N/A'
         normalized_title = re.sub(r'[^\w\s]', '', task['title']).strip().replace(' ', '_')
         task['filename'] = f'{task["id"]}_{normalized_title}.md'
 
@@ -142,14 +145,18 @@ def paginate(url: str):
     return records
 
 
-def convert_text(text: str):
+def _convert_text(text: str) -> str:
     """Convert HTML content to Markdown"""
     md_text = HTML2Text().handle(text)
     return dedent(md_text).strip()
 
 
-def format_ts(ts: str):
-    return ts.split('T')[0]
+def _parse_dt(timestamp: str) -> datetime | None:
+    return datetime.strptime(timestamp, SRC_DT_FORMAT) if timestamp else None
+
+
+def _format_dt(dt: datetime | None) -> str:
+    return dt.strftime(OUTPUT_DT_FORMAT) if dt else 'N/A'
 
 
 def write_task_summary(tasks: dict):
@@ -168,9 +175,9 @@ def write_task_detail(task: dict):
     detail = [
         f'# {task["title"]}',
         f'* URL: {TASK_BASE_URL}/{task["id"]}',
-        f'* Created: {task["created"]}',
-        f'* Updated: {task["updated"]}',
-        f'* Completed: {task["done_at"]}',
+        f'* Created: {_format_dt(task["created"])}',
+        f'* Updated: {_format_dt(task["updated"])}',
+        f'* Completed: {_format_dt(task["done_at"])}',
         f'* Project: {task["project"]}',
         f'* Labels: {", ".join(task["labels"])}',
     ]
@@ -183,7 +190,7 @@ def write_task_detail(task: dict):
         detail.append('\n# Comments')
         for comment in task['comments']:
             detail += [
-                f'\n## {comment["author"]["name"]} {comment["created"]}',
+                f'\n## {comment["author"]["name"]} {_format_dt(comment["created"])}',
                 comment['comment'],
             ]
 
