@@ -1,74 +1,45 @@
-#!/usr/bin/env python
-import json
+"""Utilities to fetch, convert, and format task data from Vikunja"""
+
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from logging import getLogger
+from pathlib import Path
 from textwrap import dedent
+from typing import Iterator
 
 from dateutil.parser import parse as parse_date
 from html2text import HTML2Text
 
-from .config import (
-    COMBINED_JSON,
-    IGNORE_LABELS,
-    IGNORE_PROJECTS,
-    OUTPUT_DIR,
-    VJA_SESSION,
-    VK_HOST,
-    VK_TOKEN,
-)
+from .config import IGNORE_LABELS, IGNORE_PROJECTS, OUTPUT_DIR, VJA_SESSION, VK_HOST
 
 # Settings from environment variables and/or .env file
 API_BASE_URL = f'https://{VK_HOST}/api/v1'
 TASK_BASE_URL = f'https://{VK_HOST}/tasks'
-KEEP_FIELDS = [
-    'id',
-    'title',
-    'filename',
-    'description',
-    'done',
-    'done_at',
-    'created',
-    'updated',
-    'is_favorite',
-    'labels',
-    'comments',
-    'project',
-]
-OUTPUT_DT_FORMAT = '%Y-%m-%d'
+DT_FORMAT = '%Y-%m-%d'
 
 logger = getLogger(__name__)
 
 
-def main():
-    if not VK_HOST:
-        raise ValueError('API host required')
-    if not VK_TOKEN:
-        raise ValueError('API token required')
+@dataclass
+class Task:
+    id: int
+    path: Path
+    mtime: datetime
+    detail: str
+    summary: str
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    tasks = get_tasks()
-
-    if COMBINED_JSON:
-        with (OUTPUT_DIR / 'tasks.json').open('w') as f:
-            f.write(json.dumps(tasks, indent=2))
-    else:
-        write_task_summary(tasks)
-        detail_tasks = [task for task in tasks if task['description'] or task['comments']]
-        logger.info(f'Found {len(detail_tasks)} tasks with details')
-        update_paths(detail_tasks)
-        for task in detail_tasks:
-            write_task_detail(task)
-
-    logger.info(f'Export complete: {OUTPUT_DIR}')
+    @property
+    def filename(self):
+        return self.path.name
 
 
-def get_tasks():
+def get_tasks() -> Iterator[Task]:
     """Get all tasks add comments and projects, and format for export"""
     logger.info('Fetching tasks')
-    tasks = paginate(f'{API_BASE_URL}/tasks/all')
+    tasks = _paginate(f'{API_BASE_URL}/tasks/all')
     logger.debug('Fetching projects')
-    projects = paginate(f'{API_BASE_URL}/projects')
+    projects = _paginate(f'{API_BASE_URL}/projects')
     projects = {p['id']: p['title'] for p in projects}
 
     # Add comments and project titles
@@ -76,26 +47,8 @@ def get_tasks():
     for task in tasks:
         response = VJA_SESSION.get(f'{API_BASE_URL}/tasks/{task["id"]}/comments')
         task['comments'] = response.json()
-        for comment in task['comments']:
-            comment['comment'] = _convert_text(comment['comment'])
-            comment['created'] = _format_dt(comment['created'])
         if project_id := task.pop('project_id', None):
             task['project'] = projects[project_id]
-
-        # Format other relevant fields
-        labels = task['labels'] or []
-        task['labels'] = [label['title'] for label in labels]
-        task['description'] = _convert_text(task['description'])
-        task['created'] = _parse_dt(task['created'])
-        task['updated'] = _parse_dt(task['updated'])
-        task['done_at'] = _parse_dt(task['done_at']) if task['done'] else 'N/A'
-        normalized_title = re.sub(r'[^\w\s]', '', task['title']).strip().replace(' ', '_')
-        task['filename'] = f'{task["id"]}_{normalized_title}.md'
-
-        # Drop unused fields
-        drop_fields = set(task.keys()) - set(KEEP_FIELDS)
-        for k in drop_fields:
-            task.pop(k)
 
     # Filter out ignored projects and labels
     logger.debug(f'Ignoring projects {IGNORE_PROJECTS} and labels {IGNORE_LABELS}')
@@ -104,16 +57,21 @@ def get_tasks():
         t
         for t in tasks
         if t['project'] not in IGNORE_PROJECTS
-        and all(lbl not in IGNORE_LABELS for lbl in t['labels'])
+        and all(lbl['title'] not in IGNORE_LABELS for lbl in t['labels'])
     ]
-    msg = f'Found {len(tasks)} tasks'
-    if n_ignored := total_tasks - len(tasks):
-        msg += f' ({n_ignored} tasks ignored)'
-    logger.info(msg)
-    return tasks
+    logger.info(f'Found {len(tasks)} tasks ({total_tasks - len(tasks)} ignored)')
+
+    for task in tasks:
+        yield Task(
+            id=int(task['id']),
+            path=get_task_path(task),
+            mtime=parse_date(task['updated']),
+            detail=get_task_detail(task),
+            summary=get_task_summary(task),
+        )
 
 
-def paginate(url: str):
+def _paginate(url: str):
     """Get all pages from a paginated API endpoint"""
     response = VJA_SESSION.get(url)
     response.raise_for_status()
@@ -126,96 +84,55 @@ def paginate(url: str):
     return records
 
 
-def _convert_text(text: str) -> str:
-    """Convert HTML content to Markdown"""
-    md_text = HTML2Text().handle(text)
-    return dedent(md_text).strip()
+def get_task_path(task: dict) -> Path:
+    normalized_title = re.sub(r'[^\w\s]', '', task['title']).strip().replace(' ', '_')
+    return OUTPUT_DIR / f'{task["id"]}_{normalized_title}.md'
 
 
-def _parse_dt(timestamp: str) -> datetime | None:
-    return parse_date(timestamp) if timestamp else None
+def get_task_detail(task: dict) -> str:
+    if not task['description'] and not task['comments']:
+        return ''
 
-
-def _format_dt(dt: datetime | None) -> str:
-    return dt.strftime(OUTPUT_DT_FORMAT) if dt else 'N/A'
-
-
-def write_task_summary(tasks: dict):
-    path = OUTPUT_DIR / 'tasks.md'
-    with path.open('w') as f:
-        for task in tasks:
-            labels = ' '.join([f'[{label}]' for label in task['labels']])
-            check = '✅ ' if task['done'] else '   '
-            f.write(
-                f'{task["id"]:0>4}{check}: {task["project"]} / {task["title"]} '
-                f'{labels} {task["created"]}\n'
-            )
-
-
-def write_task_detail(task: dict):
+    labels = ', '.join([label['title'] for label in task['labels'] or []])
+    completed_dt = parse_date(task['done_at']) if task['done'] else 'N/A'
     detail = [
         f'# {task["title"]}',
         f'* URL: {TASK_BASE_URL}/{task["id"]}',
         f'* Created: {_format_dt(task["created"])}',
         f'* Updated: {_format_dt(task["updated"])}',
-        f'* Completed: {_format_dt(task["done_at"])}',
+        f'* Completed: {completed_dt}',
         f'* Project: {task["project"]}',
-        f'* Labels: {", ".join(task["labels"])}',
+        f'* Labels: {labels}',
     ]
     if task['description']:
         detail += [
             '\n# Description',
-            task['description'],
+            _convert_text(task['description']),
         ]
     if task['comments']:
         detail.append('\n# Comments')
         for comment in task['comments']:
             detail += [
                 f'\n## {comment["author"]["name"]} {_format_dt(comment["created"])}',
-                comment['comment'],
+                _convert_text(comment['comment']),
             ]
 
-    with (OUTPUT_DIR / task['filename']).open('w') as f:
-        f.write('\n'.join(detail))
+    return '\n'.join(detail)
 
 
-# TODO: don't modify files if contents haven't changed?
-def update_paths(tasks: dict):
-    """Merge local and remote file paths so external sync programs pick up the correct file
-    operations. I.e., rename/modify rather than delete/create.
-    """
-    task_paths = [path for path in OUTPUT_DIR.glob('*.md') if path.name[0].isdigit()]
-    local_id_paths = {int(path.name.split('_')[0]): path for path in task_paths}
-    remote_id_paths = {int(task['id']): OUTPUT_DIR / task['filename'] for task in tasks}
-
-    # Remove any local ids that don't exist remotely
-    to_remove = set(local_id_paths.keys()) - set(remote_id_paths.keys())
-    for task_id in to_remove:
-        local_id_paths[task_id].unlink()
-
-    # Rename any local files that have changed remotely
-    to_rename = {
-        k
-        for k in set(remote_id_paths.keys()) & set(local_id_paths.keys())
-        if remote_id_paths[k].name != local_id_paths[k].name
-    }
-    for task_id in to_rename:
-        local_id_paths[task_id].rename(remote_id_paths[task_id])
-
-    logger.debug(
-        f'Removed: {len(to_remove)} | Renamed: {len(to_rename)} | '
-        f'Created: {len(set(remote_id_paths.keys()) - set(local_id_paths.keys()))}'
+def get_task_summary(task: dict) -> str:
+    labels = ' '.join([f'[{label}]' for label in task['labels']])
+    check = '✅ ' if task['done'] else '   '
+    return (
+        f'{task["id"]:0>4}{check}: {task["project"]} / {task["title"]} {labels} {task["created"]}\n'
     )
 
 
-def check_for_updates(tasks: dict) -> dict:
-    """Check remote timestamps (task['updated']) against local file timestamps; remove any tasks
-    that haven't changed.
-    """
-    task_paths = [path for path in OUTPUT_DIR.glob('*.md') if path.name[0].isdigit()]
-    {path.name: path.stat().st_mtime for path in task_paths}
-    {task['filename']: task['updated'] for task in tasks}
+def _convert_text(text: str) -> str:
+    """Convert HTML content to Markdown"""
+    md_text = HTML2Text().handle(text)
+    return dedent(md_text).strip()
 
 
-if __name__ == '__main__':
-    main()
+def _format_dt(timestamp: str) -> str:
+    return parse_date(timestamp).strftime(DT_FORMAT) if timestamp else 'N/A'

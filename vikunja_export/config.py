@@ -16,7 +16,6 @@ VK_HOST = getenv('VK_HOST')
 VK_TOKEN = getenv('VK_TOKEN')
 IGNORE_PROJECTS = [s.strip() for s in getenv('VK_IGNORE_PROJECTS', '').split(',')]
 IGNORE_LABELS = [s.strip() for s in getenv('VK_IGNORE_LABELS', '').split(',')]
-COMBINED_JSON = getenv('VK_COMBINED_JSON', 'False').lower() == 'true'
 OUTPUT_DIR = Path(getenv('VK_OUTPUT_DIR', 'output')).expanduser().absolute()
 VK_SESSION = Session()
 VK_SESSION.headers = {'Authorization': f'Bearer {VK_TOKEN}'}
@@ -37,3 +36,9 @@ basicConfig(
     level='WARN',
 )
 getLogger('vikunja_export').setLevel(LOG_LEVEL)
+
+
+if not VK_HOST:
+    raise ValueError('API host required')
+if not VK_TOKEN:
+    raise ValueError('API token required')
