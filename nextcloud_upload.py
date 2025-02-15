@@ -1,41 +1,67 @@
-from logging import basicConfig, getLogger
+from dataclasses import dataclass
+from datetime import datetime
+from logging import getLogger
 from os import getenv
 from pathlib import Path
+from xml.etree import ElementTree
 
-import requests
+from dateutil.parser import parse as parse_date
 from dotenv import load_dotenv
+from requests import Session
 from requests.auth import HTTPBasicAuth
 
 load_dotenv()
 NC_USER = getenv('NC_USER')
 NC_DIR = getenv('NC_DIR')
-BASE_URL = f'https://{getenv("NC_HOST")}/remote.php/dav/files/{NC_USER}/{NC_DIR}'
-SESSION = requests.Session()
-SESSION.auth = HTTPBasicAuth(NC_USER, getenv('NC_PASS'))
+NC_BASE_URL = f'https://{getenv("NC_HOST")}/remote.php/dav/files/{NC_USER}/{NC_DIR}'
+NC_SESSION = Session()
+NC_SESSION.auth = HTTPBasicAuth(NC_USER, getenv('NC_PASS'))
 
 logger = getLogger(__name__)
-basicConfig(level='DEBUG')
+
+
+@dataclass
+class RemoteFile:
+    name: str
+    mtime: datetime
+
+    @classmethod
+    def from_xml(cls, element) -> 'RemoteFile':
+        return cls(
+            name=element.find('.//{DAV:}href').text,
+            mtime=parse_date(element.find('.//{DAV:}getlastmodified').text),
+        )
+
+
+def webdav_ls() -> list[RemoteFile]:
+    """List all files in the remote directory"""
+    response = NC_SESSION.request('PROPFIND', NC_BASE_URL, headers={'Depth': '1'})
+    xml_response = ElementTree.fromstring(response.content).findall('{DAV:}response')
+    return [RemoteFile.from_xml(element) for element in xml_response if not _is_dir(element)]
+
+
+def _is_dir(element) -> bool:
+    return element.find('.//{DAV:}collection') is not None
 
 
 def webdav_upload(local_paths: list[Path], remote_path: Path):
     """Upload files to Nextcloud via WebDAV"""
     _webdav_mkdir()
     for local_path in local_paths:
-        response = SESSION.put(
-            f'{BASE_URL}/{remote_path}',
-            # data=local_path.read_bytes(),
-            data=b'Hello, World!',
+        response = NC_SESSION.put(
+            f'{NC_BASE_URL}/{remote_path}',
+            data=local_path.read_bytes(),
         )
 
     if response.ok:
-        logger.debug(f'Uploaded {local_path} -> {BASE_URL}/{remote_path}')
+        logger.debug(f'Uploaded {local_path} -> {NC_BASE_URL}/{remote_path}')
     else:
         logger.error(f'Error uploading {local_path}: {response.status_code} {response.text}')
 
 
 def _webdav_mkdir():
     """Create the remote folder if it doesn't already exist"""
-    response = SESSION.request('MKCOL', BASE_URL)
+    response = NC_SESSION.request('MKCOL', NC_BASE_URL)
     if response.status_code == 201:
         logger.debug(f'Folder {NC_DIR} created')
     elif response.status_code == 405:
@@ -45,47 +71,4 @@ def _webdav_mkdir():
 
 
 # webdav_upload([Path('test.txt')], Path('test.txt'))
-
-
-# WIP: ls function
-# Adapted from: https://github.com/amnong/easywebdav/blob/master/easywebdav/client.py
-from dataclasses import dataclass
-from xml.etree import ElementTree
-
-
-@dataclass
-class RemoteFile:
-    name: str
-    size: int
-    mtime: str
-    ctime: str
-    contenttype: str
-    etag: str
-    is_dir: bool
-
-    @classmethod
-    def from_xml(cls, element):
-        def get_prop(name) -> str:
-            child = element.find(f'.//{{DAV:}}{name}')
-            return child.text if child is not None else ''
-
-        return cls(
-            name=get_prop('href'),
-            size=int(get_prop('getcontentlength') or 0),
-            mtime=get_prop('getlastmodified'),
-            ctime=get_prop('creationdate'),
-            contenttype=get_prop('getcontenttype'),
-            etag=get_prop('getetag'),
-            is_dir=element.find('.//{DAV:}collection') is not None,
-        )
-
-
-def webdav_ls() -> list[RemoteFile]:
-    response = SESSION.request('PROPFIND', BASE_URL, headers={'Depth': '1'})
-    xml_response = ElementTree.fromstring(response.content).findall('{DAV:}response')
-    return [RemoteFile.from_xml(element) for element in xml_response]
-
-
-files = webdav_ls()
-for f in files:
-    print(f)
+# print(webdav_ls())

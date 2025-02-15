@@ -47,8 +47,8 @@ KEEP_FIELDS = [
 ]
 SRC_DT_FORMAT = '%Y-%m-%dT%H:%M:%S'
 OUTPUT_DT_FORMAT = '%Y-%m-%d'
-SESSION = Session()
-SESSION.headers = {'Authorization': f'Bearer {API_TOKEN}'}
+VJA_SESSION = Session()
+VJA_SESSION.headers = {'Authorization': f'Bearer {API_TOKEN}'}
 
 basicConfig(
     format='%(asctime)s [%(name)s] [%(levelname)-5s] %(message)s',
@@ -93,7 +93,7 @@ def get_tasks():
     # Add comments and project titles
     logger.debug('Fetching comments')
     for task in tasks:
-        response = SESSION.get(f'{API_BASE_URL}/tasks/{task["id"]}/comments')
+        response = VJA_SESSION.get(f'{API_BASE_URL}/tasks/{task["id"]}/comments')
         task['comments'] = response.json()
         for comment in task['comments']:
             comment['comment'] = _convert_text(comment['comment'])
@@ -134,12 +134,12 @@ def get_tasks():
 
 def paginate(url: str):
     """Get all pages from a paginated API endpoint"""
-    response = SESSION.get(url)
+    response = VJA_SESSION.get(url)
     response.raise_for_status()
     total_pages = int(response.headers['x-pagination-total-pages'])
     records = response.json()
     for page in range(2, total_pages + 1):
-        response = SESSION.get(url, params={'page': page})
+        response = VJA_SESSION.get(url, params={'page': page})
         response.raise_for_status()
         records += response.json()
     return records
