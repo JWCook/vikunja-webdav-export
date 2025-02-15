@@ -1,36 +1,26 @@
-#!/usr/bin/env -S uv run
-# /// script
-# requires-python = ">=3.10"
-# dependencies = [
-#     "python-dotenv",
-#     "requests",
-#     "html2text",
-# ]
-# ///
+#!/usr/bin/env python
 import json
 import re
 from datetime import datetime
-from logging import basicConfig, getLogger
-from os import getenv
-from pathlib import Path
+from logging import getLogger
 from textwrap import dedent
 
-from dotenv import load_dotenv
+from dateutil.parser import parse as parse_date
 from html2text import HTML2Text
-from requests import Session
+
+from .config import (
+    COMBINED_JSON,
+    IGNORE_LABELS,
+    IGNORE_PROJECTS,
+    OUTPUT_DIR,
+    VJA_SESSION,
+    VK_HOST,
+    VK_TOKEN,
+)
 
 # Settings from environment variables and/or .env file
-load_dotenv()
-API_HOST = getenv('VJA_HOST')
-API_TOKEN = getenv('VJA_TOKEN')
-IGNORE_PROJECTS = [s.strip() for s in getenv('VJA_IGNORE_PROJECTS', '').split(',')]
-IGNORE_LABELS = [s.strip() for s in getenv('VJA_IGNORE_LABELS', '').split(',')]
-COMBINED_JSON = getenv('VJA_COMBINED_JSON', 'False').lower() == 'true'
-LOG_LEVEL = getenv('VJA_LOG_LEVEL', 'WARN')
-OUTPUT_DIR = Path(getenv('VJA_OUTPUT_DIR', 'output')).expanduser().absolute()
-
-API_BASE_URL = f'https://{API_HOST}/api/v1'
-TASK_BASE_URL = f'https://{API_HOST}/tasks'
+API_BASE_URL = f'https://{VK_HOST}/api/v1'
+TASK_BASE_URL = f'https://{VK_HOST}/tasks'
 KEEP_FIELDS = [
     'id',
     'title',
@@ -45,24 +35,15 @@ KEEP_FIELDS = [
     'comments',
     'project',
 ]
-SRC_DT_FORMAT = '%Y-%m-%dT%H:%M:%S'
 OUTPUT_DT_FORMAT = '%Y-%m-%d'
-VJA_SESSION = Session()
-VJA_SESSION.headers = {'Authorization': f'Bearer {API_TOKEN}'}
 
-basicConfig(
-    format='%(asctime)s [%(name)s] [%(levelname)-5s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    level='WARN',
-)
-logger = getLogger('vikunja-dump')
-logger.setLevel(LOG_LEVEL)
+logger = getLogger(__name__)
 
 
 def main():
-    if not API_HOST:
+    if not VK_HOST:
         raise ValueError('API host required')
-    if not API_TOKEN:
+    if not VK_TOKEN:
         raise ValueError('API token required')
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -152,7 +133,7 @@ def _convert_text(text: str) -> str:
 
 
 def _parse_dt(timestamp: str) -> datetime | None:
-    return datetime.strptime(timestamp, SRC_DT_FORMAT) if timestamp else None
+    return parse_date(timestamp) if timestamp else None
 
 
 def _format_dt(dt: datetime | None) -> str:

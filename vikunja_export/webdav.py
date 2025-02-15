@@ -1,21 +1,14 @@
+"""Utilities to interact with a remote Nextcloud server via WebDAV API"""
+
 from dataclasses import dataclass
 from datetime import datetime
 from logging import getLogger
-from os import getenv
 from pathlib import Path
 from xml.etree import ElementTree
 
 from dateutil.parser import parse as parse_date
-from dotenv import load_dotenv
-from requests import Session
-from requests.auth import HTTPBasicAuth
 
-load_dotenv()
-NC_USER = getenv('NC_USER')
-NC_DIR = getenv('NC_DIR')
-NC_BASE_URL = f'https://{getenv("NC_HOST")}/remote.php/dav/files/{NC_USER}/{NC_DIR}'
-NC_SESSION = Session()
-NC_SESSION.auth = HTTPBasicAuth(NC_USER, getenv('NC_PASS'))
+from .config import NC_BASE_URL, NC_DIR, NC_SESSION
 
 logger = getLogger(__name__)
 
