@@ -1,7 +1,8 @@
-# Vikunja-dump
+# Vikunja-WebDAV Export
 
-This is a simple script to dump text from tasks in [Vikunja](https://vikunja.io) to Markdown files,
-including task titles, descriptions, and comments.
+This is a tool to export relevant text from tasks in [Vikunja](https://vikunja.io) to Markdown files synced to Nextcloud.
+
+This is very much tailored to my own use case, but it could be made more generic if there's interest.
 
 My use case for this is taking useful notes I've previously added to tasks, and exporting them
 to make them easily searchable using standard command line tools.
@@ -14,13 +15,13 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 Set Vikunja host and token as environment variables (or in a `.env` file):
 ```sh
-export VIKUNJA_HOST=vikunja.example.com
-export VIKUNJA_TOKEN=your-api-token
+export VJA_HOST=vikunja.example.com
+export VJA_TOKEN=your-api-token
 ```
 
 Run the script:
 ```sh
-./vikunja-dump.py
+./main.py
 ```
 
 ## Output format
@@ -59,4 +60,3 @@ Options to try out:
 Text fields are in HTML format. Looked through several options to convert back to Markdown.
 This one looks promising: [html2text](https://github.com/Alir3z4/html2text)
 ```
-

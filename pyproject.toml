@@ -1,12 +1,13 @@
 [project]
-name = 'vikunja-dump'
+name = 'vikunja-export'
 version = '0.0.1'
-description = 'Dump text from Vikunja tasks to Markdown files'
+description = 'Export text from Vikunja tasks to Markdown files'
 authors = [{ name = 'Jordan Cook' }]
 license = 'MIT'
-rreadme = 'README.md'
+readme = 'README.md'
 requires-python = '>=3.10'
 dependencies = [
+    'python-dateutil',
     'python-dotenv',
     'requests',
     'html2text',
