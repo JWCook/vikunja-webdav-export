@@ -15,13 +15,13 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 Set Vikunja host and token as environment variables (or in a `.env` file):
 ```sh
-export VK_HOST=vikunja.example.com
-export VK_TOKEN=your-api-token
+export VJA_HOST=vikunja.example.com
+export VJA_TOKEN=your-api-token
 ```
 
 Run the script:
 ```sh
-./vikunja-dump.py
+./main.py
 ```
 
 ## Output format
@@ -60,4 +60,3 @@ Options to try out:
 Text fields are in HTML format. Looked through several options to convert back to Markdown.
 This one looks promising: [html2text](https://github.com/Alir3z4/html2text)
 ```
-

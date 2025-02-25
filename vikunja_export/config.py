@@ -4,41 +4,53 @@ from logging import basicConfig, getLogger
 from os import getenv
 from pathlib import Path
 
+import environ
 from dotenv import load_dotenv
 from requests import Session
 from requests.auth import HTTPBasicAuth
 
+
+def split_list(list_str: str) -> list[str]:
+    return [s.strip() for s in list_str.split(',')]
+
+
+def resolve_path(p: str) -> Path:
+    return Path(p).expanduser().absolute()
+
+
+@environ.config(prefix=None)
+class EnvConfig:
+    log_level = environ.var(default='INFO')
+
+    # Vikunja settings
+    vja_host = environ.var()
+    vja_token = environ.var()
+    ignore_projects = environ.var(converter=split_list)
+    ignore_labels = environ.var(converter=split_list)
+
+    # Nextcloud/WebDAV settings
+    nc_user = environ.var()
+    nc_dir = environ.var()
+    nc_host = environ.var()
+
+    @property
+    def nc_base_url(self):
+        return f'https://{self.nc_host}/remote.php/dav/files/{self.nc_user}/{self.nc_dir}'
+
+
+# First load .env (if it exists), then read environment variables
 load_dotenv()
+CONFIG = environ.to_config(EnvConfig)
 
+VJA_SESSION = Session()
+VJA_SESSION.headers = {'Authorization': f'Bearer {CONFIG.vja_token}'}
 
-# Vikunja settings
-VK_HOST = getenv('VK_HOST')
-VK_TOKEN = getenv('VK_TOKEN')
-IGNORE_PROJECTS = [s.strip() for s in getenv('VK_IGNORE_PROJECTS', '').split(',')]
-IGNORE_LABELS = [s.strip() for s in getenv('VK_IGNORE_LABELS', '').split(',')]
-OUTPUT_DIR = Path(getenv('VK_OUTPUT_DIR', 'output')).expanduser().absolute()
-VK_SESSION = Session()
-VK_SESSION.headers = {'Authorization': f'Bearer {VK_TOKEN}'}
-
-# Nextcloud/WebDAV settings
-NC_USER = getenv('NC_USER')
-NC_DIR = getenv('NC_DIR')
-NC_HOST = getenv('NC_HOST')
-NC_BASE_URL = f'https://{NC_HOST}/remote.php/dav/files/{NC_USER}/{NC_DIR}'
 NC_SESSION = Session()
-NC_SESSION.auth = HTTPBasicAuth(NC_USER, getenv('NC_PASS'))
+NC_SESSION.auth = HTTPBasicAuth(CONFIG.nc_user, getenv('NC_PASS'))
 
-# Logging settings
-LOG_LEVEL = getenv('VK_LOG_LEVEL', 'WARN')
 basicConfig(
     format='%(asctime)s [%(name)s] [%(levelname)-5s] %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
-    level='WARN',
+    level=CONFIG.log_level,
 )
-getLogger('vikunja_export').setLevel(LOG_LEVEL)
-
-
-if not VK_HOST:
-    raise ValueError('API host required')
-if not VK_TOKEN:
-    raise ValueError('API token required')
+getLogger('urllib3').setLevel('WARN')
